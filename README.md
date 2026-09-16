@@ -10,13 +10,15 @@ which a real car cannot.
 
 > **Status:** Phase 1 of 4 — telemetry link and driver display.
 
+![Driver display](docs/dash.png)
+
 ---
 
 ## Roadmap
 
 | Phase | Scope | State |
 |---|---|---|
-| **1** | UDP telemetry protocol, receiver, Qt/QML driver display | In progress |
+| **1** | UDP telemetry protocol, receiver, Qt/QML driver display | Working |
 | **2** | Traction control designed against a vehicle plant model, deployed to STM32 over CAN-FD, with a UDS diagnostic server | Planned |
 | **3** | Hardware-in-the-loop bench, automated regression in CI, requirement-to-test traceability | Planned |
 | **4** | Physical data logger (IMU, GPS, temperatures) and lap analysis in Python | Planned |
@@ -44,6 +46,15 @@ struct rather than reinterpreting the buffer in place.
 already counted is not also a loss — treating them as one number makes a healthy link look
 broken and hides the difference between a congested path and a lossy one.
 
+**The display publishes on a clock, not on arrival.** Frames are latched and pushed to the UI
+at 60 Hz regardless of how fast telemetry lands, so the display costs the same at 60 Hz as at
+500 Hz. Each publish carries the whole frame in one signal: emitting a change per property
+would let the screen show this frame's speed beside last frame's gear.
+
+**Link health is on screen, next to the car.** A display that cannot distinguish "the car is
+stationary" from "the link is dead" is worse than no display, so packet rate, loss and reject
+counts sit in the status strip and the whole readout greys out when frames stop arriving.
+
 ---
 
 ## Build
@@ -57,25 +68,40 @@ cmake --build build
 
 ## Run
 
-Two terminals — the generator and the receiver:
+Start a telemetry source in one terminal:
 
 ```bash
 python tools/sim_telemetry.py
 ```
 
+Then either front end. The display:
+
+```bash
+./build/telemetry_dash
+```
+
+Or the console probe, which prints the same stream as one live line — useful when
+debugging the link rather than looking at the car:
+
 ```bash
 ./build/telemetry_probe
 ```
 
-The probe prints a live line: speed, rpm, gear, throttle, brake, and the packet counters.
-
-To verify the receiver handles a degraded link:
+To verify both survive a degraded link:
 
 ```bash
 python tools/sim_telemetry.py --drop 0.1 --jitter 0.03
 ```
 
-`lost` and `ooo` should climb while `bad` stays at zero.
+`lost` and `ooo` should climb while `bad` stays at zero. The display keeps reading
+smoothly through the gaps, and drops to `NO SIGNAL` within half a second of the
+source stopping.
+
+The README image is generated, not cropped by hand:
+
+```bash
+./build/telemetry_dash --shot docs/dash.png --shot-delay 13500
+```
 
 ---
 
@@ -84,9 +110,16 @@ python tools/sim_telemetry.py --drop 0.1 --jitter 0.03
 ```
 TelemetryPacket.h      Wire format — the contract between producer and consumer
 TelemetryReceiver.h    Validating receiver with link statistics
-main.cpp               Console sink, renders at 10 Hz
+TelemetryModel.h       Presentation model: latches frames, publishes at 60 Hz
+qml/Main.qml           Driver display
+main_dash.cpp          Display entry point
+main.cpp               Console probe, renders at 10 Hz
 tools/sim_telemetry.py Synthetic telemetry source with fault injection
 ```
+
+One receiver, two front ends. The display and the probe share the same
+`TelemetryReceiver` without either knowing about the other, which is what made
+swapping the lap model underneath a change to one file.
 
 ## License
 
