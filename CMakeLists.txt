@@ -31,3 +31,22 @@ qt_add_qml_module(telemetry_dash
     QML_FILES qml/Main.qml
 )
 target_link_libraries(telemetry_dash PRIVATE Qt6::Core Qt6::Network Qt6::Gui Qt6::Quick)
+
+# On Windows the executables do not carry the Qt runtime, so launching them
+# outside Qt Creator fails with "Qt6Core.dll not found". windeployqt copies the
+# libraries, the platform plugin and the QtQuick QML modules next to the binary
+# so it is double-clickable. Both targets share this output directory, so
+# deploying the display covers the probe as well.
+if(WIN32)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt
+                 HINTS "${Qt6_DIR}/../../../bin")
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET telemetry_dash POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                    --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml"
+                    --no-translations
+                    "$<TARGET_FILE:telemetry_dash>"
+            COMMENT "Deploying the Qt runtime next to the executables"
+            VERBATIM)
+    endif()
+endif()

@@ -59,12 +59,17 @@ counts sit in the status strip and the whole readout greys out when frames stop 
 
 ## Build
 
-Requires Qt 6 (Core and Network) and a C++17 compiler.
+Requires Qt 6 (Core, Network, Gui, Quick) and a C++17 compiler.
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="C:/Qt/6.11.2/mingw_64"
 cmake --build build
 ```
+
+On Windows the build runs `windeployqt` afterwards, which copies the Qt libraries,
+the platform plugin and the QtQuick modules next to the binaries. Without that step
+the executables only start from inside Qt Creator, or from a shell with Qt's `bin`
+on `PATH`; with it they are double-clickable.
 
 ## Run
 
