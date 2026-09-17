@@ -49,12 +49,21 @@ PLATE = (8, 11, 13, 205)
 # sea of black and re-centred — an empty upper half reads as a mistake.
 CENTRE_DASH = f"crop={W}:412:0:764,pad={W}:{H}:0:469:black"
 
+# Captions may be a string or a list of lines. Titles may be a string or a
+# (title, subtitle) pair.
 EDIT = [
     ("track", 29.2, 4.8, "Real-time telemetry - C++/Qt reading Assetto Corsa",
-     "MOTORSPORT TELEMETRY", None),
+     ("MOTORSPORT TELEMETRY",
+      "top: the simulator            bottom: the app I built"), None),
     ("track", 38.0, 6.5, "99% brake - all four wheels locking", None, None),
     ("track", 13.5, 4.0, "Matches the car's own readout, live", None, None),
-    ("bench", 6.0, 10.0, "15% packet loss injected - the display holds",
+    # The last beat has no car in it, so it has to say what it is before it can
+    # say why it matters. Two captions rather than one long one.
+    ("bench", 6.0, 5.0, ["Simulator gone. A test source now feeds the same app",
+                         "and it can drop or reorder packets on demand"],
+     None, CENTRE_DASH),
+    ("bench", 11.0, 5.0, ["15% of packets dropped on purpose",
+                          "lost and ooo climb, bad stays zero, nothing stutters"],
      None, CENTRE_DASH),
 ]
 END_CARD_SECONDS = 3.0
@@ -94,15 +103,26 @@ def caption_png(path, caption, title):
     d = ImageDraw.Draw(img)
 
     if title:
-        centred(d, title, ImageFont.truetype(find_font("title"), 46), 58, INK)
+        head, sub = title if isinstance(title, tuple) else (title, None)
+        centred(d, head, ImageFont.truetype(find_font("title"), 46), 46, INK)
+        if sub:
+            # Naming the two halves once, on the opening shot, is enough: a
+            # viewer who has never seen a racing sim cannot otherwise tell
+            # which half is the game and which half is the thing being shown.
+            centred(d, sub, ImageFont.truetype(find_font("mono"), 26), 104, MUTED)
 
-    font = ImageFont.truetype(find_font("mono"), 33)
-    width = d.textlength(caption, font=font)
-    y = H - 132
+    lines = [caption] if isinstance(caption, str) else list(caption)
+    font = ImageFont.truetype(find_font("mono"), 30)
+    step = 42
+    widest = max(d.textlength(line, font=font) for line in lines)
+    top = H - 132 - step * (len(lines) - 1)
+
     # A plate behind the caption keeps it readable over whatever is behind it.
-    d.rounded_rectangle([(W - width) / 2 - 26, y - 16, (W + width) / 2 + 26, y + 52],
+    d.rounded_rectangle([(W - widest) / 2 - 26, top - 16,
+                        (W + widest) / 2 + 26, top + step * (len(lines) - 1) + 48],
                         radius=8, fill=PLATE)
-    centred(d, caption, font, y, INK)
+    for i, line in enumerate(lines):
+        centred(d, line, font, top + i * step, INK)
     img.save(path)
 
 
@@ -164,7 +184,8 @@ def main():
                  "-crf", "18", "-pix_fmt", "yuv420p",
                  "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", out])
         parts.append(out)
-        print(f"  shot {i}  {dur:4.1f}s  {caption}")
+        first = caption if isinstance(caption, str) else caption[0]
+        print(f"  shot {i}  {dur:4.1f}s  {first}")
 
     card_png = os.path.join(args.work, "endcard.png")
     card_mp4 = os.path.join(args.work, "endcard.mp4")
