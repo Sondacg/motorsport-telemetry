@@ -36,7 +36,11 @@ int main(int argc, char *argv[])
     cli.addOption(shotDelayOpt);
     cli.addOption(acOpt);
     cli.addOption(acHostOpt);
+    QCommandLineOption revOpt("rev-limit",
+        "Rev limit for the shift lights. Raised automatically if the car revs "
+        "past it, since AC does not announce one.", "rpm", "8500");
     cli.addOption(trackOpt);
+    cli.addOption(revOpt);
     cli.process(app);
 
     // Two sources, one signal. The model is handed a frame producer and never
@@ -45,6 +49,7 @@ int main(int argc, char *argv[])
     AssettoCorsaSource assettoCorsa;
     const bool useAc = cli.isSet(acOpt);
     TelemetryModel model(useAc ? nullptr : &receiver);
+    model.setRevLimit(cli.value(revOpt).toDouble());
 
     if (useAc) {
         QObject::connect(&assettoCorsa, &AssettoCorsaSource::frameReceived,

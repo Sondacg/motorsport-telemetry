@@ -114,12 +114,20 @@ private:
                                 m_host, m_port);
     }
 
+    // AC pads these fixed-width fields with '%' rather than with NUL, so
+    // stopping at the first NUL still yields "ferrari_458_gt2%".
     static QString wideAt(const QByteArray &b, int offset, int bytes)
     {
         if (b.size() < offset + bytes) return {};
         const QString s = QString::fromUtf16(
             reinterpret_cast<const char16_t *>(b.constData() + offset), bytes / 2);
-        return s.left(s.indexOf(QChar(u'\0')) < 0 ? s.size() : s.indexOf(QChar(u'\0')));
+
+        int end = s.size();
+        for (const QChar terminator : { QChar(u'%'), QChar(u'\0') }) {
+            const int at = s.indexOf(terminator);
+            if (at >= 0) end = qMin(end, at);
+        }
+        return s.left(end).trimmed();
     }
 
     // Unaligned reads: the datagram is a byte buffer, so copy rather than cast.

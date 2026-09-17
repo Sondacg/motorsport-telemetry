@@ -10,7 +10,17 @@ which a real car cannot.
 
 > **Status:** Phase 1 of 4 — telemetry link and driver display.
 
-![Driver display](docs/dash.png)
+![Driver display](docs/dash-ac.png)
+
+*Reading a Ferrari 458 GT2 at Spa, live from Assetto Corsa. The slip figures are
+the giveaway that the wheels are in the right order: zero at the front, positive
+at the rear, because the car is rear-wheel drive and under power.*
+
+<details><summary>The same display on the synthetic source, with 5% packet loss injected</summary>
+
+![Synthetic source](docs/dash.png)
+
+</details>
 
 ---
 

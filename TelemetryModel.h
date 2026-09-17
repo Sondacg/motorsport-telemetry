@@ -38,7 +38,9 @@ class TelemetryModel : public QObject
     Q_PROPERTY(qreal lapDistanceM MEMBER m_lapDistanceM NOTIFY updated)
     Q_PROPERTY(int   lapNumber    MEMBER m_lapNumber    NOTIFY updated)
 
-    Q_PROPERTY(qreal revLimit     MEMBER m_revLimit     CONSTANT)
+    // Not CONSTANT: the limit depends on the car, and a source that does not
+    // announce it has to be observed instead.
+    Q_PROPERTY(qreal revLimit     MEMBER m_revLimit     NOTIFY updated)
 
     // Link health — separate from the car's state, because a display that
     // cannot tell "the car is stationary" from "the link is dead" is worse
@@ -78,6 +80,7 @@ public:
     }
 
     void setWaitingHint(const QString &hint) { m_waitingHint = hint; }
+    void setRevLimit(qreal rpm) { if (rpm > 0.0) m_revLimit = rpm; }
 
 public slots:
     // Every source funnels through here, whatever protocol it came off.
@@ -87,6 +90,11 @@ public slots:
         m_haveFrame = true;
         ++m_ownCount;
         m_sinceFrame.restart();
+
+        // Shift lights that never reach the top are worse than none. When a
+        // car revs past the configured limit, believe the car.
+        if (frame.rpm > m_revLimit)
+            m_revLimit = frame.rpm;
     }
 
 signals:
