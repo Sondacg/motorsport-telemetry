@@ -5,6 +5,7 @@
 #include <QString>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QQueue>
 
 #include "TelemetryReceiver.h"
 
@@ -89,6 +90,7 @@ public slots:
         m_latest = frame;
         m_haveFrame = true;
         ++m_ownCount;
+        m_arrivals.enqueue(m_clock.elapsed());
         m_sinceFrame.restart();
 
         // Shift lights that never reach the top are worse than none. When a
@@ -133,8 +135,12 @@ private:
             m_outOfOrder  = qint64(s.outOfOrder);
             m_rejected    = qint64(s.rejected);
         } else {
-            const double secs = m_clock.elapsed() / 1000.0;
-            m_pps      = secs > 0.0 ? double(m_ownCount) / secs : 0.0;
+            // Trailing window, for the same reason the receiver uses one: an
+            // average taken since startup describes the wait, not the link.
+            const qint64 now = m_clock.elapsed();
+            while (!m_arrivals.isEmpty() && now - m_arrivals.head() > 2000)
+                m_arrivals.dequeue();
+            m_pps      = m_arrivals.size() / 2.0;
             m_received = qint64(m_ownCount);
         }
 
@@ -148,6 +154,7 @@ private:
     telemetry::CarTelemetry m_latest{};
     bool m_haveFrame = false;
     quint64 m_ownCount = 0;
+    QQueue<qint64> m_arrivals;
     bool m_linkStatsValid = true;
     QString m_waitingHint;
 

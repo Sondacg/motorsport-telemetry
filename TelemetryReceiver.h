@@ -4,6 +4,7 @@
 #include <QUdpSocket>
 #include <QNetworkDatagram>
 #include <QElapsedTimer>
+#include <QQueue>
 
 #include <cstring>
 #include <optional>
@@ -27,6 +28,7 @@ public:
         quint64 rejected      = 0;  // wrong size, bad magic, wrong version
         quint64 lost          = 0;  // inferred from gaps in the frame counter
         quint64 outOfOrder    = 0;  // arrived with a frame number we passed already
+        quint64 restarts      = 0;  // the source began counting again
         double  packetsPerSec = 0.0;
     };
 
@@ -58,11 +60,25 @@ private slots:
             if (const auto frame = parse(dg.data()))
                 emit frameReceived(*frame);
         }
-        const double secs = m_clock.elapsed() / 1000.0;
-        m_stats.packetsPerSec = secs > 0.0 ? double(m_stats.received) / secs : 0.0;
+        m_stats.packetsPerSec = rate();
     }
 
 private:
+    // Packet rate over a short trailing window, not over the whole session.
+    // Dividing total packets by total uptime answers "what was the average
+    // since the program started", which is not the question: a display opened
+    // minutes before the source reports a dead link that is actually healthy.
+    double rate()
+    {
+        const qint64 now = m_clock.elapsed();
+        while (!m_arrivals.isEmpty() && now - m_arrivals.head() > kRateWindowMs)
+            m_arrivals.dequeue();
+        return m_arrivals.size() * 1000.0 / double(kRateWindowMs);
+    }
+
+    static constexpr qint64 kRateWindowMs = 2000;
+    QQueue<qint64> m_arrivals;
+
     // Never reinterpret_cast a network buffer into a struct. The buffer has no
     // alignment guarantee and an attacker (or a bug) controls its length; a
     // size check plus memcpy costs nothing and cannot trap.
@@ -84,13 +100,25 @@ private:
 
         accountForOrdering(frame.header.frame);
         ++m_stats.received;
+        m_arrivals.enqueue(m_clock.elapsed());
         return frame;
     }
+
+    // A frame number far below the highest seen is not a late packet — it is a
+    // source that restarted and began counting from zero again. Treating that
+    // as reordering floods the statistics with hundreds of phantom events and
+    // buries the next real problem, so rebase instead and count the restart.
+    static constexpr quint32 kRestartGap = 100;
 
     void accountForOrdering(quint32 frameNo)
     {
         if (!m_seenAny) {
             m_seenAny = true;
+            m_highestFrame = frameNo;
+            return;
+        }
+        if (frameNo + kRestartGap < m_highestFrame) {
+            ++m_stats.restarts;
             m_highestFrame = frameNo;
             return;
         }
