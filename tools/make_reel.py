@@ -14,6 +14,11 @@ expected to be 1080x1350 at 60 fps — see the OBS notes in the README.
 Captions are drawn with Pillow and composited as images. This keeps the
 typography under control and avoids depending on an ffmpeg built with
 libfreetype, which many distributions are not.
+
+Engine audio rides along from the track footage. The bench shot is digital
+silence because nothing is running there but a Python script — so the sound
+falls away exactly when the car leaves the screen, which marks the change of
+subject better than any transition would.
 """
 
 import argparse
@@ -143,13 +148,21 @@ def main():
             f"[1:v]format=rgba,fade=t=in:st=0:d=0.35:alpha=1,"
             f"fade=t=out:st={dur - 0.45:.2f}:d=0.35:alpha=1[cap];"
             f"{base}[cap]overlay=0:0:format=auto,"
-            f"fade=t=in:st=0:d=0.2,fade=t=out:st={dur - 0.25:.2f}:d=0.25[v]"
+            f"fade=t=in:st=0:d=0.2,fade=t=out:st={dur - 0.25:.2f}:d=0.25[v];"
+            # Short audio fades: cutting a running engine at full level clicks.
+            f"[0:a]afade=t=in:st=0:d=0.15,"
+            f"afade=t=out:st={dur - 0.25:.2f}:d=0.25[a]"
         )
+        # The caption is a looped still, so it never ends on its own. Without
+        # a duration on the OUTPUT too, ffmpeg keeps generating frames forever
+        # and the shot grows without bound.
         run(ff, ["-ss", str(start), "-t", str(dur), "-i", sources[which],
                  "-loop", "1", "-i", png,
-                 "-filter_complex", chain, "-map", "[v]",
-                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
-                 "-crf", "18", "-pix_fmt", "yuv420p", "-an", out])
+                 "-filter_complex", chain, "-map", "[v]", "-map", "[a]",
+                 "-t", str(dur), "-r", str(FPS),
+                 "-c:v", "libx264", "-preset", "veryfast",
+                 "-crf", "18", "-pix_fmt", "yuv420p",
+                 "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", out])
         parts.append(out)
         print(f"  shot {i}  {dur:4.1f}s  {caption}")
 
@@ -157,9 +170,13 @@ def main():
     card_mp4 = os.path.join(args.work, "endcard.mp4")
     end_card_png(card_png)
     run(ff, ["-loop", "1", "-t", str(END_CARD_SECONDS), "-i", card_png,
+             "-f", "lavfi", "-t", str(END_CARD_SECONDS),
+             "-i", "anullsrc=r=48000:cl=stereo",
              "-vf", "fade=t=in:st=0:d=0.4,format=yuv420p",
              "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", "18", "-pix_fmt", "yuv420p", "-an", card_mp4])
+             "-crf", "18", "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+             "-shortest", card_mp4])
     parts.append(card_mp4)
     print(f"  end card {END_CARD_SECONDS:4.1f}s")
 
