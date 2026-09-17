@@ -22,6 +22,7 @@ set_target_properties(telemetry_probe PROPERTIES WIN32_EXECUTABLE OFF)
 qt_add_executable(telemetry_dash
     main_dash.cpp
     TelemetryModel.h
+    AssettoCorsaSource.h
     TelemetryReceiver.h
     TelemetryPacket.h
 )

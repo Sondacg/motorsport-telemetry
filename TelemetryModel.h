@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QVariantList>
+#include <QString>
 #include <QTimer>
 #include <QElapsedTimer>
 
@@ -33,7 +34,7 @@ class TelemetryModel : public QObject
     Q_PROPERTY(int   gear         MEMBER m_gear         NOTIFY updated)
     Q_PROPERTY(bool  drs          MEMBER m_drs          NOTIFY updated)
     Q_PROPERTY(qreal engineTempC  MEMBER m_engineTempC  NOTIFY updated)
-    Q_PROPERTY(QVariantList tyreTempC MEMBER m_tyreTempC NOTIFY updated)
+    Q_PROPERTY(QVariantList wheelSlipRatio MEMBER m_wheelSlip NOTIFY updated)
     Q_PROPERTY(qreal lapDistanceM MEMBER m_lapDistanceM NOTIFY updated)
     Q_PROPERTY(int   lapNumber    MEMBER m_lapNumber    NOTIFY updated)
 
@@ -48,24 +49,44 @@ class TelemetryModel : public QObject
     Q_PROPERTY(qint64 lost        MEMBER m_lost         NOTIFY updated)
     Q_PROPERTY(qint64 outOfOrder  MEMBER m_outOfOrder   NOTIFY updated)
     Q_PROPERTY(qint64 rejected    MEMBER m_rejected     NOTIFY updated)
+    // False when the source carries no sequence number, so loss and ordering
+    // cannot be measured. Showing zeros there would claim a perfect link
+    // rather than admit the question is unanswerable.
+    Q_PROPERTY(bool linkStatsValid MEMBER m_linkStatsValid CONSTANT)
+    // What to tell the viewer while nothing has arrived. It depends on the
+    // source, and a hint that names the wrong one sends them to fix the wrong
+    // thing.
+    Q_PROPERTY(QString waitingHint MEMBER m_waitingHint CONSTANT)
 
 public:
+    // rx may be null: a source that is not this project's own UDP link has no
+    // frame counter behind it, so there are no loss statistics to report.
     explicit TelemetryModel(TelemetryReceiver *rx, QObject *parent = nullptr)
-        : QObject(parent), m_rx(rx)
+        : QObject(parent), m_rx(rx), m_linkStatsValid(rx != nullptr)
     {
-        m_tyreTempC = QVariantList{ 0.0, 0.0, 0.0, 0.0 };
+        m_wheelSlip = QVariantList{ 0.0, 0.0, 0.0, 0.0 };
         m_sinceFrame.start();
+        m_clock.start();
 
-        connect(rx, &TelemetryReceiver::frameReceived,
-                this, [this](const telemetry::CarTelemetry &f) {
-            m_latest = f;
-            m_haveFrame = true;
-            m_sinceFrame.restart();
-        });
+        if (rx)
+            connect(rx, &TelemetryReceiver::frameReceived,
+                    this, &TelemetryModel::ingest);
 
         // 60 Hz publish rate, independent of how fast packets arrive.
         connect(&m_publish, &QTimer::timeout, this, &TelemetryModel::publish);
         m_publish.start(16);
+    }
+
+    void setWaitingHint(const QString &hint) { m_waitingHint = hint; }
+
+public slots:
+    // Every source funnels through here, whatever protocol it came off.
+    void ingest(const telemetry::CarTelemetry &frame)
+    {
+        m_latest = frame;
+        m_haveFrame = true;
+        ++m_ownCount;
+        m_sinceFrame.restart();
     }
 
 signals:
@@ -89,19 +110,25 @@ private:
             m_gear         = f.gear;
             m_drs          = f.drs != 0;
             m_engineTempC  = f.engineTempC;
-            m_tyreTempC    = QVariantList{ f.tyreTempC[0], f.tyreTempC[1],
-                                           f.tyreTempC[2], f.tyreTempC[3] };
+            m_wheelSlip    = QVariantList{ f.wheelSlipRatio[0], f.wheelSlipRatio[1],
+                                           f.wheelSlipRatio[2], f.wheelSlipRatio[3] };
             m_lapDistanceM = f.lapDistanceM;
             m_lapNumber    = int(f.lapNumber);
         }
         m_live = live;
 
-        const auto s  = m_rx->stats();
-        m_pps         = s.packetsPerSec;
-        m_received    = qint64(s.received);
-        m_lost        = qint64(s.lost);
-        m_outOfOrder  = qint64(s.outOfOrder);
-        m_rejected    = qint64(s.rejected);
+        if (m_rx) {
+            const auto s  = m_rx->stats();
+            m_pps         = s.packetsPerSec;
+            m_received    = qint64(s.received);
+            m_lost        = qint64(s.lost);
+            m_outOfOrder  = qint64(s.outOfOrder);
+            m_rejected    = qint64(s.rejected);
+        } else {
+            const double secs = m_clock.elapsed() / 1000.0;
+            m_pps      = secs > 0.0 ? double(m_ownCount) / secs : 0.0;
+            m_received = qint64(m_ownCount);
+        }
 
         emit updated();
     }
@@ -109,14 +136,18 @@ private:
     TelemetryReceiver *m_rx;
     QTimer m_publish;
     QElapsedTimer m_sinceFrame;
+    QElapsedTimer m_clock;
     telemetry::CarTelemetry m_latest{};
     bool m_haveFrame = false;
+    quint64 m_ownCount = 0;
+    bool m_linkStatsValid = true;
+    QString m_waitingHint;
 
     qreal m_speedKph = 0, m_rpm = 0, m_throttle = 0, m_brake = 0, m_steer = 0;
     int   m_gear = 0;
     bool  m_drs = false;
     qreal m_engineTempC = 0;
-    QVariantList m_tyreTempC;
+    QVariantList m_wheelSlip;
     qreal m_lapDistanceM = 0;
     int   m_lapNumber = 0;
 

@@ -27,7 +27,7 @@ import struct
 import time
 
 MAGIC = 0x5443
-VERSION = 1
+VERSION = 2
 PACKET_CAR_TELEMETRY = 0
 
 # Must stay in lockstep with TelemetryPacket.h.
@@ -37,11 +37,12 @@ PACKET_CAR_TELEMETRY = 0
 #   fffff    speed, rpm, throttle, brake, steer
 #   bBH      gear, drs, reserved
 #   f        engineTemp
-#   ffff     tyre temps
+#   ffff     wheel angular speed
+#   ffff     wheel slip ratio
 #   f        lapDistance
 #   I        lapNumber
-FORMAT = "<HBBIffffffbBHffffffI"
-assert struct.calcsize(FORMAT) == 64, struct.calcsize(FORMAT)
+FORMAT = "<HBBIffffffbBHffffffffffI"
+assert struct.calcsize(FORMAT) == 80, struct.calcsize(FORMAT)
 
 # ── vehicle ───────────────────────────────────────────────────────────────
 REV_LIMIT = 11800.0
@@ -171,9 +172,21 @@ class Car:
         }
 
 
+TYRE_RADIUS_M = 0.33
+
+
 def build(frame, t, s):
     load = 0.45 + 0.55 * s["throttle"]
-    heat = 0.6 + 0.4 * (s["kph"] / 312.0)
+
+    # Wheel speed is road speed plus whatever the tyre is slipping. Driven
+    # wheels spin up under power and every wheel locks up under braking, so a
+    # controller written against this sees the shape it would see on a car.
+    v = s["kph"] / 3.6
+    drive_slip = 0.06 * s["throttle"]
+    lock_slip = -0.05 * s["brake"]
+    slip = [lock_slip, lock_slip, drive_slip + lock_slip, drive_slip + lock_slip]
+    omega = [(v * (1.0 + k)) / TYRE_RADIUS_M for k in slip]
+
     return struct.pack(
         FORMAT,
         MAGIC, VERSION, PACKET_CAR_TELEMETRY, frame,
@@ -181,8 +194,8 @@ def build(frame, t, s):
         s["kph"], s["rpm"], s["throttle"], s["brake"], s["steer"],
         s["gear"], s["drs"], 0,
         88.0 + 16.0 * load,
-        96.0 + 22.0 * heat, 97.0 + 22.0 * heat,
-        101.0 + 24.0 * heat, 100.0 + 24.0 * heat,
+        omega[0], omega[1], omega[2], omega[3],
+        slip[0], slip[1], slip[2], slip[3],
         s["distance"],
         s["lap"],
     )

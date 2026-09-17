@@ -20,7 +20,7 @@
 namespace telemetry {
 
 inline constexpr uint16_t kMagic           = 0x5443;  // 'TC'
-inline constexpr uint8_t  kProtocolVersion = 1;
+inline constexpr uint8_t  kProtocolVersion = 2;
 inline constexpr uint16_t kDefaultPort     = 20777;
 
 enum class PacketId : uint8_t {
@@ -52,11 +52,20 @@ struct CarTelemetry {
     uint16_t reserved;     // explicit — never let the compiler choose padding
 
     float   engineTempC;
-    float   tyreTempC[4];  // FL, FR, RL, RR
+
+    // Per-wheel state, FL FR RL RR.
+    //
+    // v2 replaced tyre temperatures with these. Temperatures were invented for
+    // the synthetic source and no real telemetry link here carries them, while
+    // wheel speed against road speed IS the signal a traction controller acts
+    // on — so phase 2 needs these and would never have needed the other.
+    float   wheelAngularSpeed[4];  // rad/s
+    float   wheelSlipRatio[4];     // 0 = rolling, >0 = spinning, <0 = locking
+
     float   lapDistanceM;
     uint32_t lapNumber;
 };
-static_assert(sizeof(CarTelemetry) == 64, "CarTelemetry layout drifted");
+static_assert(sizeof(CarTelemetry) == 80, "CarTelemetry layout drifted");
 
 #pragma pack(pop)
 

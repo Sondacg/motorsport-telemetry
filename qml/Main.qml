@@ -226,17 +226,19 @@ Window {
             Row {
                 spacing: 7
                 Text {
-                    text: "TYRE"
+                    text: "SLIP"
                     font { pixelSize: 14; family: "Consolas"; letterSpacing: 1 }
                     color: theme.muted
                 }
                 Repeater {
-                    model: telemetry.tyreTempC
+                    model: telemetry.wheelSlipRatio
                     Text {
                         required property var modelData
-                        text: Math.round(modelData)
+                        // Positive is a wheel spinning up, negative is one
+                        // locking. Both matter, so the sign is kept.
+                        text: (modelData >= 0 ? "+" : "") + (modelData * 100).toFixed(0)
                         font { pixelSize: 14; family: "Consolas" }
-                        color: modelData > 125 ? theme.amber : theme.text
+                        color: Math.abs(modelData) > 0.08 ? theme.amber : theme.text
                     }
                 }
             }
@@ -260,21 +262,25 @@ Window {
                 color: telemetry.live ? theme.muted : theme.red
             }
             Text {
+                visible: telemetry.linkStatsValid
                 text: "rx " + telemetry.received
                 font { pixelSize: 14; family: "Consolas" }
                 color: theme.muted
             }
             Text {
+                visible: telemetry.linkStatsValid
                 text: "lost " + telemetry.lost
                 font { pixelSize: 14; family: "Consolas" }
                 color: telemetry.lost > 0 ? theme.amber : theme.muted
             }
             Text {
+                visible: telemetry.linkStatsValid
                 text: "ooo " + telemetry.outOfOrder
                 font { pixelSize: 14; family: "Consolas" }
                 color: theme.muted
             }
             Text {
+                visible: telemetry.linkStatsValid
                 text: "bad " + telemetry.rejected
                 font { pixelSize: 14; family: "Consolas" }
                 color: telemetry.rejected > 0 ? theme.red : theme.muted

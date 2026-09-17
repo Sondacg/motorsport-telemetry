@@ -8,6 +8,7 @@
 
 #include "TelemetryReceiver.h"
 #include "TelemetryModel.h"
+#include "AssettoCorsaSource.h"
 
 int main(int argc, char *argv[])
 {
@@ -23,18 +24,43 @@ int main(int argc, char *argv[])
         "Keeps the README image reproducible instead of hand-cropped.", "file");
     QCommandLineOption shotDelayOpt("shot-delay",
         "Milliseconds to wait before grabbing.", "ms", "2500");
+    QCommandLineOption acOpt("ac",
+        "Take telemetry from Assetto Corsa directly instead of this project's "
+        "own UDP format.");
+    QCommandLineOption acHostOpt("ac-host", "Machine running AC.", "host", "127.0.0.1");
+    QCommandLineOption trackOpt("track-length",
+        "Lap length in metres. AC reports position as a fraction of the lap, so "
+        "the distance on screen is only as accurate as this.", "m", "5000");
     cli.addOption(portOpt);
     cli.addOption(shotOpt);
     cli.addOption(shotDelayOpt);
+    cli.addOption(acOpt);
+    cli.addOption(acHostOpt);
+    cli.addOption(trackOpt);
     cli.process(app);
 
+    // Two sources, one signal. The model is handed a frame producer and never
+    // asks which kind it is.
     TelemetryReceiver receiver;
-    if (!receiver.listen(quint16(cli.value(portOpt).toUShort()))) {
+    AssettoCorsaSource assettoCorsa;
+    const bool useAc = cli.isSet(acOpt);
+    TelemetryModel model(useAc ? nullptr : &receiver);
+
+    if (useAc) {
+        QObject::connect(&assettoCorsa, &AssettoCorsaSource::frameReceived,
+                         &model, &TelemetryModel::ingest);
+        QObject::connect(&assettoCorsa, &AssettoCorsaSource::connectedToSim,
+                         &app, [](const QString &car, const QString &track) {
+            QTextStream(stdout) << "Assetto Corsa: " << car << " at " << track << "\n";
+        });
+        assettoCorsa.start(QHostAddress(cli.value(acHostOpt)),
+                           AssettoCorsaSource::kAcPort,
+                           cli.value(trackOpt).toFloat());
+        QTextStream(stdout) << "waiting for Assetto Corsa — get on track\n";
+    } else if (!receiver.listen(quint16(cli.value(portOpt).toUShort()))) {
         QTextStream(stderr) << "cannot bind UDP port — is something else listening?\n";
         return 1;
     }
-
-    TelemetryModel model(&receiver);
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("telemetry", &model);

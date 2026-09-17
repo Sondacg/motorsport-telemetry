@@ -79,6 +79,15 @@ Start a telemetry source in one terminal:
 python tools/sim_telemetry.py
 ```
 
+Or drive one. With Assetto Corsa on track, the display reads its telemetry directly:
+
+```bash
+./build/telemetry_dash --ac --track-length 7004
+```
+
+AC reports lap position as a fraction rather than in metres, so `--track-length`
+is what turns it back into distance.
+
 Then either front end. The display:
 
 ```bash
@@ -115,6 +124,8 @@ The README image is generated, not cropped by hand:
 ```
 TelemetryPacket.h      Wire format — the contract between producer and consumer
 TelemetryReceiver.h    Validating receiver with link statistics
+AssettoCorsaSource.h   Adapter: Assetto Corsa's format into this one
+tools/ac_probe.py      Derives AC's layout from a live capture
 TelemetryModel.h       Presentation model: latches frames, publishes at 60 Hz
 qml/Main.qml           Driver display
 main_dash.cpp          Display entry point
@@ -125,6 +136,11 @@ tools/sim_telemetry.py Synthetic telemetry source with fault injection
 One receiver, two front ends. The display and the probe share the same
 `TelemetryReceiver` without either knowing about the other, which is what made
 swapping the lap model underneath a change to one file.
+
+The same cut runs the other way. `AssettoCorsaSource` translates a simulator's
+telemetry into `CarTelemetry` and stops there: the model, the display, and the
+controller in phase 2 never learn a game is involved. A second simulator is
+another adapter and no other change.
 
 ## License
 
