@@ -133,6 +133,14 @@ The README image is generated, not cropped by hand:
 ./build/telemetry_dash --shot docs/dash.png --shot-delay 13500
 ```
 
+So is the reel. `tools/make_reel.py` cuts screen recordings to an edit held in
+the script, composites the captions, and joins the shots — so re-recording a
+shot costs one command rather than an afternoon rebuilding a timeline:
+
+```bash
+python tools/make_reel.py --track laps.mkv --bench degraded.mkv -o reel.mp4
+```
+
 ---
 
 ## Layout
@@ -142,6 +150,7 @@ TelemetryPacket.h      Wire format — the contract between producer and consume
 TelemetryReceiver.h    Validating receiver with link statistics
 AssettoCorsaSource.h   Adapter: Assetto Corsa's format into this one
 tools/ac_probe.py      Derives AC's layout from a live capture
+tools/make_reel.py     Builds the project reel from screen recordings
 TelemetryModel.h       Presentation model: latches frames, publishes at 60 Hz
 qml/Main.qml           Driver display
 main_dash.cpp          Display entry point

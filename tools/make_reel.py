@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Assemble the project reel from screen recordings.
+
+The edit lives in a script rather than in a timeline, for the same reason the
+README image is generated rather than cropped by hand: re-recording a shot then
+costs one command instead of an afternoon rebuilding a sequence.
+
+    python tools/make_reel.py --track laps.mkv --bench degraded.mkv -o reel.mp4
+
+`--track` is footage of the display beside a running simulator; `--bench` is the
+display alone, fed by tools/sim_telemetry.py with packet loss injected. Both are
+expected to be 1080x1350 at 60 fps — see the OBS notes in the README.
+
+Captions are drawn with Pillow and composited as images. This keeps the
+typography under control and avoids depending on an ffmpeg built with
+libfreetype, which many distributions are not.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+try:
+    import imageio_ffmpeg
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    sys.exit("needs: pip install imageio-ffmpeg Pillow")
+
+W, H = 1080, 1350
+FPS = 60
+
+INK = (233, 239, 242)
+MUTED = (140, 163, 172)
+ACCENT = (57, 208, 122)
+PLATE = (8, 11, 13, 205)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The edit. Timecodes are seconds into the named source and belong to one set of
+# takes; re-record and they change. Everything else here is layout.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The bench shot has no simulator above it, so the display is lifted out of its
+# sea of black and re-centred — an empty upper half reads as a mistake.
+CENTRE_DASH = f"crop={W}:412:0:764,pad={W}:{H}:0:469:black"
+
+EDIT = [
+    ("track", 29.2, 4.8, "Real-time telemetry - C++/Qt reading Assetto Corsa",
+     "MOTORSPORT TELEMETRY", None),
+    ("track", 38.0, 6.5, "99% brake - all four wheels locking", None, None),
+    ("track", 13.5, 4.0, "Matches the car's own readout, live", None, None),
+    ("bench", 6.0, 10.0, "15% packet loss injected - the display holds",
+     None, CENTRE_DASH),
+]
+END_CARD_SECONDS = 3.0
+
+END_CARD = [
+    ("title", 60, "Motorsport Telemetry", INK, 520),
+    ("title", 60, "& Control Stack", INK, 592),
+    ("mono", 31, "C++  -  Qt / QML  -  UDP  -  STM32 next", MUTED, 700),
+    ("mono", 35, "github.com/Sondacg/motorsport-telemetry", ACCENT, 790),
+]
+
+
+def find_font(kind):
+    """Bold sans for headings, bold mono for anything reporting a value."""
+    candidates = {
+        "title": [r"C:\Windows\Fonts\segoeuib.ttf",
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                  "/System/Library/Fonts/Helvetica.ttc"],
+        "mono": [r"C:\Windows\Fonts\consolab.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+                 "/System/Library/Fonts/Menlo.ttc"],
+    }[kind]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    sys.exit(f"no {kind} font found; add one to find_font()")
+
+
+def centred(draw, text, font, y, fill):
+    draw.text(((W - draw.textlength(text, font=font)) / 2, y), text,
+              font=font, fill=fill)
+
+
+def caption_png(path, caption, title):
+    """Transparent overlay: optional heading up top, caption along the bottom."""
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    if title:
+        centred(d, title, ImageFont.truetype(find_font("title"), 46), 58, INK)
+
+    font = ImageFont.truetype(find_font("mono"), 33)
+    width = d.textlength(caption, font=font)
+    y = H - 132
+    # A plate behind the caption keeps it readable over whatever is behind it.
+    d.rounded_rectangle([(W - width) / 2 - 26, y - 16, (W + width) / 2 + 26, y + 52],
+                        radius=8, fill=PLATE)
+    centred(d, caption, font, y, INK)
+    img.save(path)
+
+
+def end_card_png(path):
+    img = Image.new("RGB", (W, H), (8, 11, 13))
+    d = ImageDraw.Draw(img)
+    for kind, size, text, colour, y in END_CARD:
+        centred(d, text, ImageFont.truetype(find_font(kind), size), y, colour)
+    img.save(path)
+
+
+def run(ff, args):
+    result = subprocess.run([ff, "-y", *args], capture_output=True, text=True,
+                            errors="replace")
+    if result.returncode != 0:
+        sys.exit(result.stderr[-2000:])
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--track", required=True, help="display beside the simulator")
+    p.add_argument("--bench", required=True, help="display alone, loss injected")
+    p.add_argument("-o", "--output", default="reel.mp4")
+    p.add_argument("--work", default="reel-parts", help="scratch directory")
+    args = p.parse_args()
+
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    sources = {"track": args.track, "bench": args.bench}
+    os.makedirs(args.work, exist_ok=True)
+    parts = []
+
+    for i, (which, start, dur, caption, title, pre) in enumerate(EDIT):
+        png = os.path.join(args.work, f"caption{i}.png")
+        out = os.path.join(args.work, f"shot{i}.mp4")
+        caption_png(png, caption, title)
+
+        # Captions fade so a cut never snaps text on or off; shots fade so the
+        # joins read as edits rather than as glitches.
+        pre_chain = f"[0:v]{pre}[base];" if pre else ""
+        base = "[base]" if pre else "[0:v]"
+        chain = (
+            f"{pre_chain}"
+            f"[1:v]format=rgba,fade=t=in:st=0:d=0.35:alpha=1,"
+            f"fade=t=out:st={dur - 0.45:.2f}:d=0.35:alpha=1[cap];"
+            f"{base}[cap]overlay=0:0:format=auto,"
+            f"fade=t=in:st=0:d=0.2,fade=t=out:st={dur - 0.25:.2f}:d=0.25[v]"
+        )
+        run(ff, ["-ss", str(start), "-t", str(dur), "-i", sources[which],
+                 "-loop", "1", "-i", png,
+                 "-filter_complex", chain, "-map", "[v]",
+                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
+                 "-crf", "18", "-pix_fmt", "yuv420p", "-an", out])
+        parts.append(out)
+        print(f"  shot {i}  {dur:4.1f}s  {caption}")
+
+    card_png = os.path.join(args.work, "endcard.png")
+    card_mp4 = os.path.join(args.work, "endcard.mp4")
+    end_card_png(card_png)
+    run(ff, ["-loop", "1", "-t", str(END_CARD_SECONDS), "-i", card_png,
+             "-vf", "fade=t=in:st=0:d=0.4,format=yuv420p",
+             "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", "18", "-pix_fmt", "yuv420p", "-an", card_mp4])
+    parts.append(card_mp4)
+    print(f"  end card {END_CARD_SECONDS:4.1f}s")
+
+    listing = os.path.join(args.work, "parts.txt")
+    with open(listing, "w", encoding="utf-8") as f:
+        for part in parts:
+            f.write(f"file '{os.path.abspath(part)}'\n")
+
+    # Every part was encoded with identical settings, so the join is a stream
+    # copy: no second generation of compression over the whole reel.
+    run(ff, ["-f", "concat", "-safe", "0", "-i", listing,
+             "-c", "copy", "-movflags", "+faststart", args.output])
+
+    total = sum(shot[2] for shot in EDIT) + END_CARD_SECONDS
+    print(f"\n{args.output}  ({total:.1f}s)")
+
+
+if __name__ == "__main__":
+    main()
