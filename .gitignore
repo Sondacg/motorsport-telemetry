@@ -1,3 +1,7 @@
 build/
 __pycache__/
 *.pyc
+
+# Qt Creator per-user session state: local paths, build kits, open files.
+.qtcreator/
+CMakeLists.txt.user*
