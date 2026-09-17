@@ -83,22 +83,28 @@ on `PATH`; with it they are double-clickable.
 
 ## Run
 
-Start a telemetry source in one terminal:
+### Two sources
+
+The synthetic one needs nothing installed and can misbehave on demand:
 
 ```bash
 python tools/sim_telemetry.py
 ```
 
-Or drive one. With Assetto Corsa on track, the display reads its telemetry directly:
+Or drive a real one. With Assetto Corsa on track:
 
 ```bash
 ./build/telemetry_dash --ac --track-length 7004
 ```
 
-AC reports lap position as a fraction rather than in metres, so `--track-length`
-is what turns it back into distance.
+AC reports lap position as a fraction of the lap rather than in metres, so
+`--track-length` is what turns it back into distance. `--rev-limit` sets where the
+shift lights go red, and raises itself if the car revs past it. `--help` lists
+every option, generated from the same declarations that parse them.
 
-Then either front end. The display:
+### Two front ends
+
+The display:
 
 ```bash
 ./build/telemetry_dash
@@ -111,7 +117,7 @@ debugging the link rather than looking at the car:
 ./build/telemetry_probe
 ```
 
-To verify both survive a degraded link:
+### Proving it survives a bad link
 
 ```bash
 python tools/sim_telemetry.py --drop 0.1 --jitter 0.03
