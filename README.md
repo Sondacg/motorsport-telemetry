@@ -29,9 +29,34 @@ at the rear, because the car is rear-wheel drive and under power.*
 | Phase | Scope | State |
 |---|---|---|
 | **1** | UDP telemetry protocol, receiver, Qt/QML driver display | Working |
-| **2** | Traction control designed against a vehicle plant model, deployed to STM32 over CAN-FD, with a UDS diagnostic server | Planned |
+| **2** | Traction control designed against a vehicle plant model, deployed to STM32 over CAN-FD, with a UDS diagnostic server | Plant model working |
 | **3** | Hardware-in-the-loop bench, automated regression in CI, requirement-to-test traceability | Planned |
 | **4** | Physical data logger (IMU, GPS, temperatures) and lap analysis in Python | Planned |
+
+---
+
+## Phase 2: the plant
+
+A control law tuned by feel is tuned against whatever the car happened to do that
+day. One designed against a model can be argued about, swept over its parameters,
+and shown to hold when the tyre is colder than it was on the day.
+
+![Vehicle plant model](docs/plant.png)
+
+```bash
+python sim/vehicle.py
+```
+
+A tyre transmits force *because* it slips a little. Force rises steeply with slip
+ratio, peaks near κ = 0.13 on these coefficients, and then falls away. That fall is
+the entire problem: past the peak, more wheelspin means less force, so the wheel
+accelerates harder, which means still less force. It runs away.
+
+Out of a 54 km/h corner at full throttle the model spikes to κ = 0.74 and takes
+three quarters of a second to recover. An oracle holding slip at the peak — not a
+controller, a bound — reaches 100 km/h **0.10 s sooner**. On a circuit with eight
+slow corners that is most of a second a lap, and it is the budget the controller in
+this phase has to recover.
 
 ---
 
