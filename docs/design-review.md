@@ -39,7 +39,7 @@ controller.
 | Tyre | Magic Formula, peak μ 1.45, peak at κ = 0.133 | fitted to fall ~12% by κ = 0.4 |
 | Actuator | first-order lag, τ = 80 ms | throttle body; spark cut would be faster |
 | Control loop | 100 Hz, zero-order hold | a task on a timer, not the solver rate |
-| Road speed | known exactly | **false on a car — see §8** |
+| Road speed | estimated from sensors | §9 
 
 Off-design condition is μ = 1.00: a cooler tyre, a damper surface. Every law is
 configured once against 1.45 and then run untouched at 1.00. A comparison with
@@ -171,11 +171,9 @@ single off-design point. §7 turns it into one.
 
 ## 8. Open items and risks
 
-**Road speed is assumed known.** Slip ratio here divides by a road speed the
-simulation knows exactly. A car does not: it has driven and undriven wheel
-speeds and an accelerometer, and under a traction event the driven wheels are
-by definition lying. An estimator is required before any of this runs on a car,
-and its error feeds directly into the controlled variable. *Next work package.*
+**Road speed is assumed known.** ~~Slip ratio here divides by a road speed the
+simulation knows exactly.~~ **Closed** — see §9. The controller now runs on a
+fused estimate built from the sensors a car actually has.
 
 **No lateral dynamics.** See §2. Every result here understates the value of the
 controller, because the cost of excess longitudinal slip includes lateral grip
@@ -191,10 +189,60 @@ Out of scope here; a peak-seeking outer loop is the usual answer.
 
 ---
 
-## 9. Reproducing
+## 9. Road speed estimation
+
+Closes the first open item. `sim/estimator.py` replaces the known road speed
+with one built from an undriven wheel speed sensor and a longitudinal
+accelerometer, and the controller runs on the estimate.
+
+![Estimator](estimator.png)
+
+Three sources, over one corner exit at μ = 1.00:
+
+| source of road speed | RMS error (m/s) | resulting slip error |
+|---|---|---|
+| driven wheel | 2.531 | 0.114 |
+| undriven wheel, raw | 0.019 | — |
+| **fused, Kalman** | **0.013** | **0.000** |
+
+The first row is the one worth looking at. Taking road speed from the wheel
+being controlled is circular, and it fails in exactly the case the controller
+exists for:
+
+> **Peak slip actually reached: 0.719. Peak slip the driven wheel reports:
+> 0.000.**
+
+The wheel spins up, the estimate rises with it, and the apparent slip stays at
+zero by construction. A traction controller fed that signal does nothing
+whatsoever during a traction event, and would pass any bench test that did not
+include wheelspin.
+
+The filter carries two states, speed and accelerometer bias. The bias state is
+not decoration: an unestimated bias integrates into speed and never comes out.
+Against 0.150 m/s² injected the filter settles at 0.133.
+
+**One modelling error was worth the time it cost.** The wheel sensor was first
+modelled as counting whole pulses inside each 10 ms control window. At 48 teeth
+and 54 km/h that is about three pulses, so flooring them discarded 13% of the
+speed, and the filter spent the run fighting a measurement that was
+systematically low. Real sensors capture the *time between tooth edges* with a
+hardware timer — resolution then comes from the timer tick, and is best at low
+speed rather than worst. Correcting that took the fused error from 2.4 m/s to
+0.013 m/s.
+
+**What this still assumes.** That an undriven wheel is available and rolling
+freely. Untrue under braking, untrue on all-wheel drive, and imperfect in a
+corner where the four wheels travel different radii. Those cases need either a
+fourth-wheel selection strategy or a model-based estimate that can survive
+without any rolling reference.
+
+---
+
+## 10. Reproducing
 
 ```bash
 python sim/vehicle.py      # the plant, and what wheelspin costs
 python sim/compare.py      # three laws, on and off design, actuator sweep
 python sim/stability.py    # gain against actuator lag, limit-cycle boundary
+python sim/estimator.py    # road speed from sensors a car actually has
 ```

@@ -102,10 +102,37 @@ and stops working: peak slip 0.966 against 0.969 for no control at all. **At an
 the comparison. Sliding mode takes most of its authority from the model rather
 than from loop gain, so it is not forced into the same trade.
 
-**[The design review is written up in full](docs/design-review.md)** — requirement,
-assumptions, the three candidates, what separated them, the margins, the validation
-plan, and what is still wrong with it. The largest of those: slip ratio here is
-computed from a road speed the simulation knows exactly, and a car does not.
+### Road speed, which the car cannot measure
+
+Slip ratio divides by road speed. Everything above used the speed the simulation
+knew. A car has wheel speed sensors and an accelerometer, and during a traction
+event the driven wheels are by definition the ones that are lying.
+
+![Estimator](docs/estimator.png)
+
+```bash
+python sim/estimator.py
+```
+
+| source of road speed | RMS error (m/s) | resulting slip error |
+|---|---|---|
+| driven wheel | 2.531 | 0.114 |
+| undriven wheel, raw | 0.019 | — |
+| **fused, Kalman** | **0.013** | **0.000** |
+
+The first row is the point. Taking road speed from the wheel being controlled is
+circular, and it fails in exactly the case the controller exists for: **peak slip
+actually reached 0.719, and the driven wheel reports 0.000.** A controller fed
+that signal does nothing during a traction event, and passes any bench test that
+does not include wheelspin.
+
+The filter estimates accelerometer bias alongside speed, because a bias that is
+not estimated integrates into speed and never comes out: 0.133 recovered against
+0.150 injected.
+
+**[The design review is written up in full](docs/design-review.md)** — requirement
+and what it is worth, assumptions, the three candidates, what separated them, the
+margins, the validation plan, and what is still wrong with it.
 
 ---
 
