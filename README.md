@@ -58,6 +58,42 @@ controller, a bound — reaches 100 km/h **0.10 s sooner**. On a circuit with ei
 slow corners that is most of a second a lap, and it is the budget the controller in
 this phase has to recover.
 
+### Comparing control laws
+
+Three laws — threshold cut, PI with anti-windup, and sliding mode with equivalent
+control — each configured against μ = 1.45 and then run, untouched, at μ = 1.00.
+One column is not a comparison: every law looks competent at the grip it was tuned
+for, and the off-design column is the only part that argues anything.
+
+![Controller comparison](docs/controllers.png)
+
+```bash
+python sim/compare.py
+```
+
+Time to 100 km/h came out the same for all three, to within 0.01 s. That is not a
+tie between the laws, it is the tyre: once slip is held near the peak the car is at
+the traction limit and no control law can find more. What the laws could differ on
+was peak slip and how hard they work the actuator.
+
+They barely did. Sweeping the actuator time constant explains why:
+
+| actuator τ | bang-bang | PI | sliding mode |
+|---|---|---|---|
+| 5 ms | 0.380 | 0.357 | 0.353 |
+| 80 ms | 0.751 | 0.751 | 0.721 |
+| 150 ms | 0.957 | 0.957 | 0.941 |
+
+**The choice of law moves peak slip by 0.03. The actuator moves it by 0.60.** The
+design lever is the torque path — spark or fuel cut rather than a throttle body —
+and not the sophistication of the law sitting behind it.
+
+Two things this run has not settled, and the design review is where they get
+settled rather than glossed over: all three laws limit-cycle at τ = 80 ms, which
+says the loop gain is too high for that much delay and that the PI gains were
+chosen without reference to the actuator at all; and slip ratio here is computed
+from a road speed the simulation knows exactly, which a car does not.
+
 ---
 
 ## Design notes

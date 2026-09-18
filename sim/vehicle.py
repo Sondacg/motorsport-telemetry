@@ -71,6 +71,10 @@ class Vehicle:
     driveline_efficiency: float = 0.92
     rev_limit: float = 8500.0     # rpm
 
+    # A torque request does not arrive instantly. Eighty milliseconds is a
+    # throttle body; spark or fuel cut would be faster, but designing against
+    # the slower actuator is the honest way round.
+    throttle_tau: float = 0.08    # s
     gravity: float = 9.81
 
     def tyre_force(self, kappa: float, normal_load: float) -> float:
@@ -122,14 +126,14 @@ def slip_ratio(omega: float, v: float, radius: float) -> float:
     return (omega * radius - v) / max(abs(v), SLIP_EPS)
 
 
-def derivatives(state, throttle: float, car: Vehicle):
-    """State is [v, omega]: vehicle speed and driven-wheel speed.
+def derivatives(state, throttle_cmd: float, car: Vehicle):
+    """State is [v, omega, u]: road speed, wheel speed, delivered throttle.
 
     Two bodies, one contact patch. The tyre force appears with opposite signs
     in the two equations, which is the entire coupling: torque that does not
     reach the road through the tyre goes into spinning the wheel up instead.
     """
-    v, omega = state
+    v, omega, u = state
     kappa = slip_ratio(omega, v, car.wheel_radius)
 
     # Load transfer depends on acceleration, which depends on the force that
@@ -140,17 +144,24 @@ def derivatives(state, throttle: float, car: Vehicle):
         Fx = car.tyre_force(kappa, car.rear_normal_load(accel))
         accel = (Fx - car.resistance(v)) / car.mass
 
-    omega_dot = (car.engine_torque(omega, throttle)
+    omega_dot = (car.engine_torque(omega, u)
                  - Fx * car.wheel_radius) / car.wheel_inertia
-    return np.array([accel, omega_dot]), kappa, Fx
+    u_dot = (throttle_cmd - u) / car.throttle_tau
+    return np.array([accel, omega_dot, u_dot]), kappa, Fx
 
 
-def simulate(car: Vehicle, throttle_fn, duration=4.0, dt=1e-3, v0=15.0):
-    """Fixed-step RK4.
+CONTROL_HZ = 100.0   # the loop rate a traction controller actually gets
 
-    Fixed step on purpose: the controller this feeds will run on a timer on an
-    STM32, not on a variable-step solver, so the plant is integrated the way the
-    controller will experience it.
+
+def simulate(car: Vehicle, throttle_fn, duration=4.0, dt=1e-3, v0=15.0,
+             control_hz=CONTROL_HZ):
+    """Fixed-step RK4, with the controller sampled and held at its own rate.
+
+    Two rates on purpose. The plant is integrated finely; the controller is
+    called every 1/control_hz and its command is held between calls, because
+    that is what a task on a timer does. Running a controller at the
+    integration rate flatters it — it hides exactly the lag that decides
+    whether a law is stable on real hardware.
     """
     n = int(duration / dt)
     t = np.zeros(n)
@@ -160,12 +171,15 @@ def simulate(car: Vehicle, throttle_fn, duration=4.0, dt=1e-3, v0=15.0):
     fx = np.zeros(n)
     thr = np.zeros(n)
 
-    state = np.array([v0, v0 / car.wheel_radius])  # rolling, no slip
+    state = np.array([v0, v0 / car.wheel_radius, 1.0])  # rolling, throttle open
+    every = max(1, int(round(1.0 / (control_hz * dt))))
+    u = 1.0
 
     for i in range(n):
         time = i * dt
         kappa = slip_ratio(state[1], state[0], car.wheel_radius)
-        u = float(np.clip(throttle_fn(time, state, kappa), 0.0, 1.0))
+        if i % every == 0:
+            u = float(np.clip(throttle_fn(time, state[:2], kappa), 0.0, 1.0))
 
         t[i], v[i], w[i], thr[i] = time, state[0], state[1], u
         d1, k[i], fx[i] = derivatives(state, u, car)
@@ -174,6 +188,7 @@ def simulate(car: Vehicle, throttle_fn, duration=4.0, dt=1e-3, v0=15.0):
         d4, _, _ = derivatives(state + dt * d3, u, car)
         state = state + (dt / 6.0) * (d1 + 2 * d2 + 2 * d3 + d4)
         state[1] = max(state[1], 0.0)
+        state[2] = min(max(state[2], 0.0), 1.0)
 
     return {"t": t, "v": v, "omega": w, "kappa": k, "fx": fx, "throttle": thr}
 
