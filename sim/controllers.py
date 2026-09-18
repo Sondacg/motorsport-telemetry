@@ -53,9 +53,13 @@ class PI:
     then refusing to let go when grip returns.
     """
 
+    # Kp comes from sim/stability.py, not from taste. At an 80 ms actuator the
+    # limit-cycle boundary is Kp = 2; this is half of it, a gain margin of 2.
+    # The first version of this file used 14, which is seven times the boundary
+    # and is why every law in the comparison oscillated.
     target: float = 0.13
-    kp: float = 14.0
-    ki: float = 45.0
+    kp: float = 1.0
+    ki: float = 3.2
     name: str = "PI + anti-windup"
     _integral: float = field(default=0.0, init=False)
 

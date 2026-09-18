@@ -88,11 +88,24 @@ They barely did. Sweeping the actuator time constant explains why:
 design lever is the torque path — spark or fuel cut rather than a throttle body —
 and not the sophistication of the law sitting behind it.
 
-Two things this run has not settled, and the design review is where they get
-settled rather than glossed over: all three laws limit-cycle at τ = 80 ms, which
-says the loop gain is too high for that much delay and that the PI gains were
-chosen without reference to the actuator at all; and slip ratio here is computed
-from a road speed the simulation knows exactly, which a car does not.
+All three laws limit-cycled in that first run. Sweeping gain against actuator lag
+showed why: the PI had been running at Kp = 14 against a limit-cycle boundary of 2
+at this actuator. The gain had been chosen by taste, not measured.
+
+```bash
+python sim/stability.py
+```
+
+Re-run at Kp = 1 — half the boundary, a gain margin of two — the PI stops ringing
+and stops working: peak slip 0.966 against 0.969 for no control at all. **At an
+80 ms actuator the PI cannot be both stable and quick**, and that is what decides
+the comparison. Sliding mode takes most of its authority from the model rather
+than from loop gain, so it is not forced into the same trade.
+
+**[The design review is written up in full](docs/design-review.md)** — requirement,
+assumptions, the three candidates, what separated them, the margins, the validation
+plan, and what is still wrong with it. The largest of those: slip ratio here is
+computed from a road speed the simulation knows exactly, and a car does not.
 
 ---
 
